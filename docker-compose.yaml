@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   keycloak_db:
@@ -20,7 +20,8 @@ services:
       KC_DB_URL: jdbc:postgresql://keycloak_db:5432/keycloak_db
       KC_DB_USERNAME: keycloak_user
       KC_DB_PASSWORD: keycloak_password
-    command: 
+      KC_HEALTH_ENABLED: true
+    command:
       - start-dev
       - --import-realm
     volumes:
@@ -29,7 +30,20 @@ services:
       - "8080:8080"
     depends_on:
       - keycloak_db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          '[ -f /tmp/HealthCheck.java ] || echo "public class HealthCheck { public static void main(String[] args) throws java.lang.Throwable { System.exit(java.net.HttpURLConnection.HTTP_OK == ((java.net.HttpURLConnection)new java.net.URL(args[0]).openConnection()).getResponseCode() ? 0 : 1); } }" > /tmp/HealthCheck.java && java /tmp/HealthCheck.java http://localhost:8080/health/live',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   frontend:
+    depends_on:
+      keycloak:
+        condition: service_healthy
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -40,3 +54,16 @@ services:
       REACT_APP_KEYCLOAK_URL: http://localhost:8080
       REACT_APP_KEYCLOAK_REALM: reports-realm
       REACT_APP_KEYCLOAK_CLIENT_ID: reports-frontend
+
+  backend:
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      HOST_PORT: 8000
+      KEYCLOAK_CERT_URL: http://keycloak:8080/realms/reports-realm/protocol/openid-connect/certs
